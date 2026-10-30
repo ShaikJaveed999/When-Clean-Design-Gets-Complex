@@ -1,11 +1,10 @@
 -- PRODUCT QUERIES
--- These SQLite queries preserve the original product, supplier, category,
--- tag, and stock use cases against the normalized schema.
+-- These SQLite queries support common product requests against
+-- schema/normalized_schema.sql.
 
 -- Query 1
--- Get one row per product, with its independent multi-valued attributes
--- summarized for display. Inventory stock_quantity is the total across
--- warehouses; Query 4 reports stock at each warehouse.
+-- Return one row per product, summarizing multi-valued relationships for
+-- display and totaling stock across all warehouses.
 SELECT
     p.product_id,
     p.product_name,
@@ -53,9 +52,7 @@ JOIN suppliers AS s ON s.supplier_id = p.supplier_id
 ORDER BY p.product_id;
 
 -- Query 2
--- Find products in categories whose names contain the requested term.
--- DISTINCT keeps a product from appearing more than once if it has several
--- matching categories.
+-- DISTINCT prevents duplicate products if several assigned categories match.
 SELECT DISTINCT p.product_id, p.product_name, p.price
 FROM products AS p
 JOIN product_categories AS pc ON pc.product_id = p.product_id
@@ -64,15 +61,14 @@ WHERE c.category_name LIKE '%Electronics%'
 ORDER BY p.product_name;
 
 -- Query 3
--- Supplier attributes are stored once and reached through the product FK.
+-- Supplier contact attributes are reached through the product's supplier FK.
 SELECT p.product_name, s.supplier_name, s.supplier_phone
 FROM products AS p
 JOIN suppliers AS s ON s.supplier_id = p.supplier_id
 ORDER BY p.product_name;
 
 -- Query 4
--- Inventory is warehouse-specific, so include the location with each low-stock
--- result rather than treating stock as a product-wide attribute.
+-- Inventory is warehouse-specific, so report each low-stock product/location.
 SELECT p.product_name, w.location AS warehouse_location, i.stock_quantity
 FROM products AS p
 JOIN inventory AS i ON i.product_id = p.product_id

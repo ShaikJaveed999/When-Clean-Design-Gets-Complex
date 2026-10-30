@@ -2,93 +2,100 @@
 
 ## Assignment overview
 
-This project repairs the e-commerce schema supplied in `schema/broken_schema.sql`
-and updates the product queries for the normalized design in
-`schema/normalized_schema.sql`. The schema and queries target SQLite.
+This challenge redesigns the e-commerce schema in `schema/broken_schema.sql`
+and updates the product queries to use the normalized schema in
+`schema/normalized_schema.sql`. The SQL targets SQLite.
 
-## Problems identified
+## Problems in the original schema
 
 The original `products` table stores:
 
-- `categories` as a comma-separated string and `product_tags` as a multi-value
-  string. These are non-atomic repeating groups, break 1NF, and prevent
-  dependable constraints and joins.
-- Supplier name, phone, and email alongside each product. A supplier's contact
-  details depend on the supplier, not on the product, so they are duplicated
-  whenever a supplier provides multiple products.
-- A single warehouse location and stock quantity in the product row. This
-  mixes inventory with product identity and cannot represent stock at multiple
-  warehouses.
-- No declared foreign keys, `NOT NULL`, uniqueness, or non-negative checks.
+- `categories` and `product_tags` as comma-separated values. These repeating,
+  non-atomic groups violate 1NF and make individual values difficult to query
+  and constrain.
+- Supplier name, phone, and email alongside each product. The supplier's
+  contact details describe the supplier, not the product, so they are repeated
+  for every product from that supplier.
+- A warehouse location and stock quantity in the product row. This mixes
+  inventory facts with product identity and cannot represent stock for a
+  product at multiple warehouses.
+- No declared foreign keys, uniqueness rules, or checks for valid prices and
+  quantities.
 
-These choices create update anomalies (supplier details must be updated on
-every product row), insertion anomalies (a supplier or category cannot be
-stored independently), and deletion anomalies (deleting a supplier's last
-product can remove its only contact details). They also prevent consistent
-product/category/tag assignments and warehouse-specific stock.
+These choices lead to update anomalies (supplier details must be changed on
+multiple product rows), insertion anomalies (a supplier or category cannot be
+stored independently), and deletion anomalies (deleting a supplier's final
+product can remove its only stored contact information). The original schema
+has no composite keys, so there is no declared partial dependency; supplier
+contact details do, however, depend on the supplier rather than the product.
 
-There are no explicit composite keys in the broken schema, so no partial
-dependency is declared there. In the new junction tables, every non-key
-attribute depends on the complete composite key.
+## Normalized tables
 
-## Normalized structure
-
-| Table | Purpose and key facts |
+| Table | Purpose |
 |---|---|
-| `products` | Product identity, name, price, and required supplier FK. |
-| `suppliers` | One row per supplier; contact fields are stored once. |
+| `suppliers` | One row per supplier, with contact information stored once. |
+| `products` | Product name, price, and its supplier foreign key. |
 | `categories` | One row per unique category name. |
-| `product_categories` | Product/category many-to-many junction with a composite PK. |
+| `product_categories` | Many-to-many product/category assignments. |
 | `tags` | One row per unique tag name. |
-| `product_tags` | Product/tag many-to-many junction with a composite PK. |
+| `product_tags` | Many-to-many product/tag assignments. |
 | `warehouses` | One row per unique warehouse location. |
-| `inventory` | Stock quantity per product and warehouse; composite PK `(product_id, warehouse_id)`. |
+| `inventory` | Stock quantity for one product at one warehouse. |
 
-### Relationships
+### Keys and relationships
 
-- One supplier can provide many products; each product references one supplier
-  through `products.supplier_id`.
-- Products and categories are many-to-many through `product_categories`.
-- Products and tags are many-to-many through `product_tags`.
-- Products and warehouses are many-to-many through `inventory`, whose quantity
-  describes the stock fact for that exact pair.
-- Junction-table foreign keys enforce referential integrity; composite primary
-  keys prevent duplicate assignments or stock rows.
+- `suppliers.supplier_id` is the supplier primary key. One supplier can provide
+  many products; each product has one required supplier via
+  `products.supplier_id`.
+- `products.product_id`, `categories.category_id`, `tags.tag_id`, and
+  `warehouses.warehouse_id` are primary keys.
+- `product_categories` uses `(product_id, category_id)` as a composite primary
+  key. Its foreign keys connect products and categories and prevent duplicate
+  assignments.
+- `product_tags` uses `(product_id, tag_id)` as a composite primary key and
+  connects products and tags.
+- `inventory` uses `(product_id, warehouse_id)` as a composite primary key.
+  Its foreign keys connect products and warehouses; the key ensures at most
+  one stock row for a product at a given warehouse.
+- Foreign keys cascade deletion of product-specific junction and inventory
+  facts. Supplier deletion is restricted while products reference it, and
+  warehouse deletion is restricted while inventory exists.
 
 ## Why the design satisfies 3NF
 
-- **1NF:** All stored attributes are atomic. Categories, tags, and warehouse
-  stock are represented by rows, not comma-separated or repeating fields.
-- **2NF:** The junction tables contain no non-key attributes. In `inventory`,
-  `stock_quantity` depends on the full `(product_id, warehouse_id)` key; it
-  does not depend on only one side.
-- **3NF:** Supplier contact details depend only on `supplier_id` in
-  `suppliers`; product attributes depend only on `product_id` in `products`;
-  category and tag names depend only on their own identifiers. No non-key
-  attribute in those tables determines another non-key attribute.
+- **1NF:** Every stored field contains a single value. Categories, tags, and
+  warehouse-specific stock are represented as rows rather than repeating
+  values in product columns.
+- **2NF:** Junction tables contain only their composite key columns. In
+  `inventory`, `stock_quantity` depends on the full `(product_id, warehouse_id)`
+  key, not on just one part.
+- **3NF:** Product attributes depend on `product_id`; supplier contact
+  attributes depend on `supplier_id`; category, tag, and warehouse attributes
+  depend on their respective identifiers. No non-key attribute determines
+  another non-key attribute within these tables.
 
 ## Updated queries
 
-`queries/product_queries.sql` contains all four original use cases:
+`queries/product_queries.sql` retains the four original use cases:
 
-1. List each product once, using correlated joins to produce display-friendly
-   category/tag/location summaries and total stock across its warehouses.
-2. Find products in a category whose name contains `Electronics`, joining
-   products through `product_categories` to `categories`. `DISTINCT` prevents
-   duplicates if more than one matching category is assigned.
-3. Retrieve product and supplier contact details by joining `products` to
-   `suppliers`.
-4. Find low-stock product/warehouse pairs by joining `products`, `inventory`,
-   and `warehouses`. Location is included because stock is warehouse-specific.
+1. List each product once, with category, tag, and warehouse summaries plus
+   total stock across warehouses.
+2. Find products in categories whose names contain `Electronics`, joining
+   `products → product_categories → categories`. `DISTINCT` avoids duplicate
+   products when multiple categories match.
+3. Retrieve supplier contact details by joining `products` to `suppliers`.
+4. Find low-stock product/warehouse pairs by joining `products`,
+   `inventory`, and `warehouses`. The location is included because stock is
+   specific to a warehouse.
 
-For example, the category lookup follows
-`products → product_categories → categories`; the low-stock lookup follows
-`products → inventory → warehouses`.
+The first query uses correlated subqueries to summarize multi-valued
+relationships without multiplying product rows. The fourth query reports
+warehouse-level quantities, while the first reports their total.
 
 ## Setup and execution
 
-Install SQLite with its command-line tool, then run these commands from the
-project root:
+SQLite is used for both the schema and queries. To run them with the SQLite
+command-line tool from this directory:
 
 ```text
 sqlite3 catalog.db
@@ -97,24 +104,24 @@ sqlite3 catalog.db
 .quit
 ```
 
-The schema enables SQLite foreign-key enforcement. When executing statements
-through another SQLite connection, enable it for that connection as well:
+Foreign-key enforcement is enabled by the schema for the current SQLite
+connection. Enable it on each additional SQLite connection as well:
 
 ```sql
 PRAGMA foreign_keys = ON;
 ```
 
-The queries use SQLite's `group_concat` for the display summaries.
+The query file uses SQLite's `group_concat` for the display summaries.
 
-## Tests
+## Testing
 
-Python 3's standard library is sufficient; no third-party package is needed.
-Run the reproducible schema, integrity, sample-data, and query tests with:
+Python 3's standard library includes SQLite support; no third-party packages
+are required. Run the automated tests from this directory:
 
 ```text
 python -m unittest discover -s tests -v
 ```
 
-The test suite creates an in-memory SQLite database, loads the schema and
-representative data, executes each updated query, and checks primary keys,
-foreign keys, unique constraints, non-negative checks, and expected results.
+The tests load the schema into an in-memory database, add representative
+products, suppliers, categories, tags, warehouses, and inventory, execute all
+four updated queries, and verify expected results and key/constraint behavior.

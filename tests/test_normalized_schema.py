@@ -88,7 +88,7 @@ class NormalizedSchemaTests(unittest.TestCase):
             if re.match(r"-- Query \d+", block.strip())
         ]
 
-    def test_all_updated_queries_execute_with_expected_results(self):
+    def test_all_queries_execute_with_expected_results(self):
         blocks = self._query_blocks()
         self.assertEqual(len(blocks), 4)
 
@@ -113,37 +113,49 @@ class NormalizedSchemaTests(unittest.TestCase):
         )
 
     def test_primary_keys_foreign_keys_and_uniqueness(self):
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.connection.execute(
-                "INSERT INTO product_categories VALUES (100, 1)"
-            )
-
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.connection.execute(
-                "INSERT INTO product_categories VALUES (999, 1)"
-            )
-
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.connection.execute(
-                "INSERT INTO categories (category_name) VALUES ('Electronics')"
-            )
+        invalid_rows = (
+            "INSERT INTO product_categories VALUES (100, 1)",
+            "INSERT INTO product_categories VALUES (999, 1)",
+            "INSERT INTO product_tags VALUES (100, 1)",
+            "INSERT INTO inventory VALUES (100, 1, 3)",
+            "INSERT INTO inventory VALUES (999, 1, 3)",
+            "INSERT INTO products VALUES (200, 'Unknown supplier', 999, 1)",
+            "INSERT INTO categories (category_name) VALUES ('Electronics')",
+            "INSERT INTO tags (tag_name) VALUES ('Bluetooth')",
+            (
+                "INSERT INTO suppliers "
+                "(supplier_name, supplier_email) "
+                "VALUES ('Duplicate email', 'sales@acme.example')"
+            ),
+        )
+        for statement in invalid_rows:
+            with self.subTest(statement=statement):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.connection.execute(statement)
 
         self.assertEqual(
             self.connection.execute("PRAGMA foreign_key_check").fetchall(), []
         )
 
-    def test_non_negative_constraints(self):
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.connection.execute(
+    def test_non_negative_and_non_empty_checks(self):
+        invalid_rows = (
+            (
                 "INSERT INTO products (product_name, supplier_id, price) "
                 "VALUES ('Invalid price', 1, -0.01)"
-            )
-
-        with self.assertRaises(sqlite3.IntegrityError):
-            self.connection.execute(
+            ),
+            (
                 "INSERT INTO inventory (product_id, warehouse_id, stock_quantity) "
                 "VALUES (101, 2, -1)"
-            )
+            ),
+            (
+                "INSERT INTO products (product_name, supplier_id, price) "
+                "VALUES ('   ', 1, 1)"
+            ),
+        )
+        for statement in invalid_rows:
+            with self.subTest(statement=statement):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.connection.execute(statement)
 
     def test_product_deletion_cascades_to_product_facts(self):
         self.connection.execute("DELETE FROM products WHERE product_id = 100")
@@ -153,6 +165,15 @@ class NormalizedSchemaTests(unittest.TestCase):
                     f"SELECT COUNT(*) FROM {table} WHERE product_id = 100"
                 ).fetchone()[0]
                 self.assertEqual(count, 0)
+
+    def test_supplier_and_warehouse_deletion_is_restricted(self):
+        for statement in (
+            "DELETE FROM suppliers WHERE supplier_id = 1",
+            "DELETE FROM warehouses WHERE warehouse_id = 1",
+        ):
+            with self.subTest(statement=statement):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.connection.execute(statement)
 
 
 if __name__ == "__main__":
