@@ -19,6 +19,14 @@ CREATE TABLE products (
         ON DELETE RESTRICT
 );
 
+-- idx_products_supplier_id on products(supplier_id) supports supplier-first
+-- Query 3 joins and efficient supplier FK checks/deletes without table scans.
+CREATE INDEX idx_products_supplier_id ON products (supplier_id);
+
+-- idx_products_product_name on products(product_name) supports Queries 2 and
+-- 3 ORDER BY product_name and can avoid a separate sort when selected.
+CREATE INDEX idx_products_product_name ON products (product_name);
+
 CREATE TABLE categories (
     category_id INTEGER PRIMARY KEY,
     category_name TEXT NOT NULL UNIQUE
@@ -39,6 +47,13 @@ CREATE TABLE product_categories (
         ON DELETE CASCADE
 );
 
+-- idx_product_categories_category_id_product_id on
+-- product_categories(category_id, product_id) supports Query 2's lookup from
+-- matched categories to products; the PK starts with product_id instead.
+-- The leading-wildcard LIKE on category_name itself still requires a scan.
+CREATE INDEX idx_product_categories_category_id_product_id
+    ON product_categories (category_id, product_id);
+
 CREATE TABLE tags (
     tag_id INTEGER PRIMARY KEY,
     tag_name TEXT NOT NULL UNIQUE CHECK (length(trim(tag_name)) > 0)
@@ -56,6 +71,12 @@ CREATE TABLE product_tags (
         ON UPDATE CASCADE
         ON DELETE CASCADE
 );
+
+-- idx_product_tags_tag_id_product_id on product_tags(tag_id, product_id)
+-- supports tag-side lookups and FK checks/deletes; its PK starts with
+-- product_id for Query 1.
+CREATE INDEX idx_product_tags_tag_id_product_id
+    ON product_tags (tag_id, product_id);
 
 CREATE TABLE warehouses (
     warehouse_id INTEGER PRIMARY KEY,
@@ -76,3 +97,15 @@ CREATE TABLE inventory (
         ON UPDATE CASCADE
         ON DELETE RESTRICT
 );
+
+-- idx_inventory_warehouse_id_product_id on inventory(warehouse_id, product_id)
+-- supports warehouse-side lookups and FK checks/deletes; the PK starts with
+-- product_id.
+CREATE INDEX idx_inventory_warehouse_id_product_id
+    ON inventory (warehouse_id, product_id);
+
+-- idx_inventory_stock_quantity_product_warehouse on
+-- inventory(stock_quantity, product_id, warehouse_id) supports Query 4's
+-- low-stock range and covers its inventory columns for the product/warehouse joins.
+CREATE INDEX idx_inventory_stock_quantity_product_warehouse
+    ON inventory (stock_quantity, product_id, warehouse_id);

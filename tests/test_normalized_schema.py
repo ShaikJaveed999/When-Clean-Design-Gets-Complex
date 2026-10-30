@@ -146,6 +146,65 @@ class NormalizedSchemaTests(unittest.TestCase):
             self.connection.execute("PRAGMA foreign_key_check").fetchall(), []
         )
 
+    def test_explicit_indexes_have_expected_columns_and_order(self):
+        expected_indexes = {
+            "idx_products_supplier_id": ("products", ("supplier_id",)),
+            "idx_products_product_name": ("products", ("product_name",)),
+            "idx_product_categories_category_id_product_id": (
+                "product_categories",
+                ("category_id", "product_id"),
+            ),
+            "idx_product_tags_tag_id_product_id": (
+                "product_tags",
+                ("tag_id", "product_id"),
+            ),
+            "idx_inventory_warehouse_id_product_id": (
+                "inventory",
+                ("warehouse_id", "product_id"),
+            ),
+            "idx_inventory_stock_quantity_product_warehouse": (
+                "inventory",
+                ("stock_quantity", "product_id", "warehouse_id"),
+            ),
+        }
+
+        for index_name, (table_name, expected_columns) in expected_indexes.items():
+            with self.subTest(index=index_name):
+                index_list = self.connection.execute(
+                    f"PRAGMA index_list('{table_name}')"
+                ).fetchall()
+                self.assertIn(index_name, {row[1] for row in index_list})
+
+                actual_columns = tuple(
+                    row[2]
+                    for row in self.connection.execute(
+                        f"PRAGMA index_info('{index_name}')"
+                    ).fetchall()
+                )
+                self.assertEqual(actual_columns, expected_columns)
+
+    def test_query_plans_use_ordering_and_low_stock_indexes(self):
+        blocks = self._query_blocks()
+
+        product_listing_plan = " ".join(
+            row[3]
+            for row in self.connection.execute(
+                f"EXPLAIN QUERY PLAN {blocks[2]}"
+            ).fetchall()
+        )
+        self.assertIn("idx_products_product_name", product_listing_plan)
+
+        low_stock_plan = " ".join(
+            row[3]
+            for row in self.connection.execute(
+                f"EXPLAIN QUERY PLAN {blocks[3]}"
+            ).fetchall()
+        )
+        self.assertIn(
+            "idx_inventory_stock_quantity_product_warehouse",
+            low_stock_plan,
+        )
+
     def test_non_negative_and_non_empty_checks(self):
         invalid_rows = (
             (
@@ -160,6 +219,31 @@ class NormalizedSchemaTests(unittest.TestCase):
                 "INSERT INTO products (product_name, supplier_id, price) "
                 "VALUES ('   ', 1, 1)"
             ),
+        )
+        for statement in invalid_rows:
+            with self.subTest(statement=statement):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.connection.execute(statement)
+
+    def test_required_columns_reject_null_values(self):
+        invalid_rows = (
+            "INSERT INTO suppliers (supplier_name) VALUES (NULL)",
+            "INSERT INTO products (product_name, supplier_id, price) "
+            "VALUES (NULL, 1, 1)",
+            "INSERT INTO products (product_name, supplier_id, price) "
+            "VALUES ('Missing supplier', NULL, 1)",
+            "INSERT INTO products (product_name, supplier_id, price) "
+            "VALUES ('Missing price', 1, NULL)",
+            "INSERT INTO categories (category_name) VALUES (NULL)",
+            "INSERT INTO product_categories VALUES (NULL, 1)",
+            "INSERT INTO product_categories VALUES (100, NULL)",
+            "INSERT INTO tags (tag_name) VALUES (NULL)",
+            "INSERT INTO product_tags VALUES (NULL, 1)",
+            "INSERT INTO product_tags VALUES (100, NULL)",
+            "INSERT INTO warehouses (location) VALUES (NULL)",
+            "INSERT INTO inventory VALUES (NULL, 1, 0)",
+            "INSERT INTO inventory VALUES (100, NULL, 0)",
+            "INSERT INTO inventory VALUES (100, 1, NULL)",
         )
         for statement in invalid_rows:
             with self.subTest(statement=statement):

@@ -4,7 +4,8 @@
 
 -- Query 1
 -- Return one row per product, summarizing multi-valued relationships for
--- display and totaling stock across all warehouses.
+-- display and totaling stock across all warehouses. The junction-table
+-- primary keys begin with product_id, supporting these correlated lookups.
 SELECT
     p.product_id,
     p.product_name,
@@ -53,6 +54,9 @@ ORDER BY p.product_id;
 
 -- Query 2
 -- DISTINCT prevents duplicate products if several assigned categories match.
+-- idx_product_categories_category_id_product_id supports the category-side
+-- lookup; it does not accelerate the leading-wildcard category-name LIKE.
+-- idx_products_product_name can support the requested name ordering.
 SELECT DISTINCT p.product_id, p.product_name, p.price
 FROM products AS p
 JOIN product_categories AS pc ON pc.product_id = p.product_id
@@ -62,6 +66,8 @@ ORDER BY p.product_name;
 
 -- Query 3
 -- Supplier contact attributes are reached through the product's supplier FK.
+-- idx_products_supplier_id supports the join; idx_products_product_name can
+-- support the result ordering.
 SELECT p.product_name, s.supplier_name, s.supplier_phone
 FROM products AS p
 JOIN suppliers AS s ON s.supplier_id = p.supplier_id
@@ -69,6 +75,8 @@ ORDER BY p.product_name;
 
 -- Query 4
 -- Inventory is warehouse-specific, so report each low-stock product/location.
+-- idx_inventory_stock_quantity_product_warehouse supports the range filter;
+-- primary keys on products and warehouses support the remaining joins.
 SELECT p.product_name, w.location AS warehouse_location, i.stock_quantity
 FROM products AS p
 JOIN inventory AS i ON i.product_id = p.product_id
