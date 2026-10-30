@@ -114,11 +114,20 @@ class NormalizedSchemaTests(unittest.TestCase):
 
     def test_primary_keys_foreign_keys_and_uniqueness(self):
         invalid_rows = (
+            "INSERT INTO suppliers VALUES (1, 'Duplicate ID', NULL, NULL)",
+            "INSERT INTO products VALUES (100, 'Duplicate ID', 1, 1)",
+            "INSERT INTO categories VALUES (1, 'Duplicate ID')",
+            "INSERT INTO tags VALUES (1, 'Duplicate ID')",
+            "INSERT INTO warehouses VALUES (1, 'Duplicate ID')",
             "INSERT INTO product_categories VALUES (100, 1)",
             "INSERT INTO product_categories VALUES (999, 1)",
+            "INSERT INTO product_categories VALUES (100, 999)",
             "INSERT INTO product_tags VALUES (100, 1)",
+            "INSERT INTO product_tags VALUES (999, 1)",
+            "INSERT INTO product_tags VALUES (100, 999)",
             "INSERT INTO inventory VALUES (100, 1, 3)",
             "INSERT INTO inventory VALUES (999, 1, 3)",
+            "INSERT INTO inventory VALUES (100, 999, 3)",
             "INSERT INTO products VALUES (200, 'Unknown supplier', 999, 1)",
             "INSERT INTO categories (category_name) VALUES ('Electronics')",
             "INSERT INTO tags (tag_name) VALUES ('Bluetooth')",
