@@ -166,6 +166,31 @@ class NormalizedSchemaTests(unittest.TestCase):
                 with self.assertRaises(sqlite3.IntegrityError):
                     self.connection.execute(statement)
 
+    def test_required_columns_reject_null_values(self):
+        invalid_rows = (
+            "INSERT INTO suppliers (supplier_name) VALUES (NULL)",
+            "INSERT INTO products (product_name, supplier_id, price) "
+            "VALUES (NULL, 1, 1)",
+            "INSERT INTO products (product_name, supplier_id, price) "
+            "VALUES ('Missing supplier', NULL, 1)",
+            "INSERT INTO products (product_name, supplier_id, price) "
+            "VALUES ('Missing price', 1, NULL)",
+            "INSERT INTO categories (category_name) VALUES (NULL)",
+            "INSERT INTO product_categories VALUES (NULL, 1)",
+            "INSERT INTO product_categories VALUES (100, NULL)",
+            "INSERT INTO tags (tag_name) VALUES (NULL)",
+            "INSERT INTO product_tags VALUES (NULL, 1)",
+            "INSERT INTO product_tags VALUES (100, NULL)",
+            "INSERT INTO warehouses (location) VALUES (NULL)",
+            "INSERT INTO inventory VALUES (NULL, 1, 0)",
+            "INSERT INTO inventory VALUES (100, NULL, 0)",
+            "INSERT INTO inventory VALUES (100, 1, NULL)",
+        )
+        for statement in invalid_rows:
+            with self.subTest(statement=statement):
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.connection.execute(statement)
+
     def test_product_deletion_cascades_to_product_facts(self):
         self.connection.execute("DELETE FROM products WHERE product_id = 100")
         for table in ("product_categories", "product_tags", "inventory"):

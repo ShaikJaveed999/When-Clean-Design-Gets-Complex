@@ -125,3 +125,14 @@ python -m unittest discover -s tests -v
 The tests load the schema into an in-memory database, add representative
 products, suppliers, categories, tags, warehouses, and inventory, execute all
 four updated queries, and verify expected results and key/constraint behavior.
+
+Validation completed with Python 3.13.7 and SQLite 3.50.4:
+
+```text
+Ran 6 tests
+OK
+```
+
+The suite also attempts invalid inserts to verify primary keys, foreign keys,
+uniqueness, required (`NOT NULL`) columns, non-empty names, and non-negative
+prices and quantities.
