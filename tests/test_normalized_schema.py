@@ -146,6 +146,65 @@ class NormalizedSchemaTests(unittest.TestCase):
             self.connection.execute("PRAGMA foreign_key_check").fetchall(), []
         )
 
+    def test_explicit_indexes_have_expected_columns_and_order(self):
+        expected_indexes = {
+            "idx_products_supplier_id": ("products", ("supplier_id",)),
+            "idx_products_product_name": ("products", ("product_name",)),
+            "idx_product_categories_category_id_product_id": (
+                "product_categories",
+                ("category_id", "product_id"),
+            ),
+            "idx_product_tags_tag_id_product_id": (
+                "product_tags",
+                ("tag_id", "product_id"),
+            ),
+            "idx_inventory_warehouse_id_product_id": (
+                "inventory",
+                ("warehouse_id", "product_id"),
+            ),
+            "idx_inventory_stock_quantity_product_warehouse": (
+                "inventory",
+                ("stock_quantity", "product_id", "warehouse_id"),
+            ),
+        }
+
+        for index_name, (table_name, expected_columns) in expected_indexes.items():
+            with self.subTest(index=index_name):
+                index_list = self.connection.execute(
+                    f"PRAGMA index_list('{table_name}')"
+                ).fetchall()
+                self.assertIn(index_name, {row[1] for row in index_list})
+
+                actual_columns = tuple(
+                    row[2]
+                    for row in self.connection.execute(
+                        f"PRAGMA index_info('{index_name}')"
+                    ).fetchall()
+                )
+                self.assertEqual(actual_columns, expected_columns)
+
+    def test_query_plans_use_ordering_and_low_stock_indexes(self):
+        blocks = self._query_blocks()
+
+        product_listing_plan = " ".join(
+            row[3]
+            for row in self.connection.execute(
+                f"EXPLAIN QUERY PLAN {blocks[2]}"
+            ).fetchall()
+        )
+        self.assertIn("idx_products_product_name", product_listing_plan)
+
+        low_stock_plan = " ".join(
+            row[3]
+            for row in self.connection.execute(
+                f"EXPLAIN QUERY PLAN {blocks[3]}"
+            ).fetchall()
+        )
+        self.assertIn(
+            "idx_inventory_stock_quantity_product_warehouse",
+            low_stock_plan,
+        )
+
     def test_non_negative_and_non_empty_checks(self):
         invalid_rows = (
             (
